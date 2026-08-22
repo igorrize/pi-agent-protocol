@@ -116,7 +116,7 @@ Weaker by nature (response is async/free-text — see CONCERNS C2). Requires the
 
 - [x] LICENSE (MIT), package metadata (`repository`/`homepage`/`keywords`/`engines`/`files`), `typebox` + pi API as optional **peerDependencies**, semver `0.1.0`.
 - [x] Installable like other pi plugins (`pi.extensions` + peer deps; ships TS source, loaded via jiti). **Your step:** push, then `pi install git:github.com/igorrize/pi-agent-protocol` (npm publish optional later).
-- [ ] **Your step:** after install, replace the local-dev `extensions` path in `settings.json` with the installed `packages` entry.
+- [x] Installed as a package; local-dev `extensions` path removed from `settings.json` — verified loading from the installed clone (`ap_agents` returns the contracts; `typebox` resolved from the host peer-dep).
 - [x] `CHANGELOG.md` + README install section done. **Your step:** `git tag v0.1.0` after push.
 
 ---
@@ -127,7 +127,7 @@ Weaker by nature (response is async/free-text — see CONCERNS C2). Requires the
 2. **M1** ✅ subagent contract works end-to-end on a real agent (Phase 1) — validated live on pi-subagents 0.54.
 3. **M2** ✅ Tested + documented (Phase 2 core) — unit + handler tests, live smoke, README + CHANGELOG.
 4. **M3** intercom experimental path (Phase 3).
-5. **M4** Released + installed globally (Phase 4).
+5. **M4** ✅ Released (v0.1.0 → github.com/igorrize/pi-agent-protocol) + installed as a package; verified loading from the installed clone.
 
 ## Decisions locked
 
