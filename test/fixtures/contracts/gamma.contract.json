@@ -1,0 +1,8 @@
+{
+  "input_schema": {
+    "required": ["target"],
+    "properties": {
+      "target": { "type": "string" }
+    }
+  }
+}

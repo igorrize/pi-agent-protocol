@@ -1,0 +1,20 @@
+{
+  "agent_name": "test",
+  "input_schema": {
+    "required": ["target"],
+    "properties": {
+      "target": { "type": "string" },
+      "spec": { "type": "string" },
+      "reads": { "type": "array" }
+    }
+  },
+  "output_schema": {
+    "required": ["test_names", "red_confirmed"],
+    "properties": {
+      "test_names": { "type": "array" },
+      "test_files": { "type": "array" },
+      "red_confirmed": { "type": "boolean" },
+      "red_output": { "type": "string" }
+    }
+  }
+}

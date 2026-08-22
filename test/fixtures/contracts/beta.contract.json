@@ -1,0 +1,9 @@
+{
+  "agent_name": "beta",
+  "input_schema": {
+    "required": ["task"],
+    "properties": {
+      "task": { "type": "string" }
+    }
+  }
+}

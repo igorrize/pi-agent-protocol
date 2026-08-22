@@ -1,0 +1,21 @@
+{
+  "agent_name": "working",
+  "input_schema": {
+    "required": ["task", "test_names"],
+    "properties": {
+      "task": { "type": "string" },
+      "test_names": { "type": "array" },
+      "reads": { "type": "array" }
+    }
+  },
+  "output_schema": {
+    "required": ["files_changed", "green_confirmed"],
+    "properties": {
+      "files_changed": { "type": "array" },
+      "green_confirmed": { "type": "boolean" },
+      "attempts": { "type": "integer" },
+      "test_output": { "type": "string" }
+    }
+  },
+  "policy": { "max_test_attempts": 3, "on_exhausted": "ask_user" }
+}

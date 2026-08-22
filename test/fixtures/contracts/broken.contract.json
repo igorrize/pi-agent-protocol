@@ -1,0 +1,6 @@
+{
+  "agent_name": "broken",
+  "input_schema": {
+    "required": ["task"],
+  }
+}

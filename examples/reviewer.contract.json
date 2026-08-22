@@ -1,0 +1,19 @@
+{
+  "agent_name": "reviewer",
+  "input_schema": {
+    "required": ["files_changed"],
+    "properties": {
+      "files_changed": { "type": "array" },
+      "test_names": { "type": "array" },
+      "green_confirmed": { "type": "boolean" }
+    }
+  },
+  "output_schema": {
+    "required": ["verdict"],
+    "properties": {
+      "verdict": { "type": "string" },
+      "business_findings": { "type": "array" },
+      "arch_findings": { "type": "array" }
+    }
+  }
+}

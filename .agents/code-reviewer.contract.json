@@ -1,0 +1,18 @@
+{
+  "agent_name": "code-reviewer",
+  "input_schema": {
+    "required": ["files", "rubric"],
+    "properties": {
+      "files": { "type": "array" },
+      "rubric": { "type": "string" },
+      "focus": { "type": "string" }
+    }
+  },
+  "output_schema": {
+    "required": ["findings"],
+    "properties": {
+      "findings": { "type": "array" },
+      "summary": { "type": "string" }
+    }
+  }
+}

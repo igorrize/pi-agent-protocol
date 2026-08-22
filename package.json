@@ -1,0 +1,68 @@
+{
+  "name": "pi-agent-protocol",
+  "version": "0.1.0",
+  "description": "Typed agent-to-agent contracts (validated input + validated output + audit) for the pi coding agent, over pi-subagents and pi-intercom. Soft, configurable enforcement. No tool-locking.",
+  "type": "module",
+  "license": "MIT",
+  "author": "igorrize",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/igorrize/pi-agent-protocol.git"
+  },
+  "homepage": "https://github.com/igorrize/pi-agent-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/igorrize/pi-agent-protocol/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "agent-protocol",
+    "contracts",
+    "subagents",
+    "intercom",
+    "ai",
+    "coding-agent"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "src/",
+    "examples/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "DESIGN.md",
+    "RESEARCH.md",
+    "CONCERNS.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typebox": "*",
+    "typescript": "^5"
+  }
+}
