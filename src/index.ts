@@ -22,6 +22,7 @@ import type {
 import { Type } from "typebox";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type {
   Contract,
   ContractRegistry,
@@ -73,6 +74,18 @@ function textResult(text: string): AgentToolResult<null> {
   return { content: [{ type: "text" as const, text }], details: null };
 }
 
+/** Bounded insert for the correlation-id maps (evict oldest at cap). */
+const CID_MAP_CAP = 2000;
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+function rememberCid(map: Map<string, string>, key: string, cid: string): void {
+  if (!key) return;
+  if (map.size >= CID_MAP_CAP) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, cid);
+}
+
 export default function agentProtocol(pi: ExtensionAPI): void {
   if (isDisabled()) {
     console.error("[agent-protocol] disabled via AP_DISABLE — no-op");
@@ -82,6 +95,8 @@ export default function agentProtocol(pi: ExtensionAPI): void {
   const mode = readMode();
   const audit = new AuditLog({ file: resolveAuditFile() });
   const pending = new Map<string, PendingDispatch>();
+  const cidByToolCall = new Map<string, string>();
+  const cidByRunId = new Map<string, string>();
   let registry: ContractRegistry = new Map();
 
   function loadNow(cwd: string): void {
@@ -166,12 +181,15 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         );
       }
 
+      const cid = randomUUID();
+      res.pending.cid = cid;
       pending.set(agent, res.pending);
       audit.record({
         kind: "dispatched",
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: { stage: "gate" },
       });
       return textResult(
@@ -239,11 +257,15 @@ export default function agentProtocol(pi: ExtensionAPI): void {
   function handleSingle(
     input: SubagentInput,
     agent: string,
+    toolCallId: string,
   ): { block: true; reason: string } | void {
     const contract = registry.get(agent);
     if (!contract) return; // uncontracted -> pass through
 
     const p = consume(agent);
+    const cid = p?.cid ?? randomUUID();
+    rememberCid(cidByToolCall, toolCallId, cid);
+
     if (p) {
       rewriteSingle(input, p);
       audit.record({
@@ -251,6 +273,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: { stage: "run" },
       });
       return;
@@ -263,6 +286,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: { blocked: true },
       });
       return {
@@ -284,6 +308,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
       agent,
       path: "subagent",
       mode,
+      cid,
       detail: { injectedOutputSchema },
     });
   }
@@ -321,12 +346,14 @@ export default function agentProtocol(pi: ExtensionAPI): void {
     const missing: string[] = [];
     for (const agent of contracted) {
       const p = consume(agent);
+      const cid = p?.cid ?? randomUUID();
       if (p) {
         audit.record({
           kind: "dispatched",
           agent,
           path: "subagent",
           mode,
+          cid,
           detail: { stage: "run", via: "workflowScript" },
         });
       } else {
@@ -335,6 +362,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
           agent,
           path: "subagent",
           mode,
+          cid,
           detail: { via: "workflowScript" },
         });
         missing.push(agent);
@@ -359,12 +387,15 @@ export default function agentProtocol(pi: ExtensionAPI): void {
    */
   function handleIntercomCall(
     input: SubagentInput,
+    toolCallId: string,
   ): { block: true; reason: string } | void {
     const action = typeof input.action === "string" ? input.action : undefined;
     if (action !== "send" && action !== "ask") return;
     const contract = resolvePeerContract(registry, input.to);
     if (!contract) return;
 
+    const cid = randomUUID();
+    rememberCid(cidByToolCall, toolCallId, cid);
     const params = extractParams(input.attachments);
     const res = validateOutbound(contract, params);
     if (res.ok) {
@@ -373,6 +404,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent: contract.agent_name,
         path: "intercom",
         mode,
+        cid,
         detail: { action },
       });
       return;
@@ -383,6 +415,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
       agent: contract.agent_name,
       path: "intercom",
       mode,
+      cid,
       detail: { action, errors: res.errors },
     });
     if (mode === "block") {
@@ -401,7 +434,10 @@ export default function agentProtocol(pi: ExtensionAPI): void {
   pi.on("tool_call", (event: ToolCallEvent) => {
     try {
       if (event.toolName === "intercom") {
-        return handleIntercomCall(event.input as SubagentInput);
+        return handleIntercomCall(
+          event.input as SubagentInput,
+          event.toolCallId,
+        );
       }
       if (event.toolName !== "subagent") return;
       const input = event.input as SubagentInput;
@@ -424,7 +460,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
       )
         return;
 
-      return handleSingle(input, input.agent);
+      return handleSingle(input, input.agent, event.toolCallId);
     } catch (err) {
       console.error(
         "[agent-protocol] tool_call handler error (passing through):",
@@ -444,6 +480,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
     contract: Contract,
     r: Record<string, unknown>,
     via: string,
+    cid: string | undefined,
   ): void {
     if (r.detached === true) {
       audit.record({
@@ -451,6 +488,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: { stage: "async-started", via },
       });
       return;
@@ -466,6 +504,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: {
           error: r.error,
           structuredOutputFailed: r.structuredOutputFailed === true,
@@ -490,6 +529,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
       agent,
       path: "subagent",
       mode,
+      cid,
       detail: { revalidation, via },
     });
   }
@@ -506,11 +546,13 @@ export default function agentProtocol(pi: ExtensionAPI): void {
           .join("\n");
         const { result } = softParseReply(replyText, contract);
         if (!result) return;
+        const cid = cidByToolCall.get(event.toolCallId);
         audit.record({
           kind: "intercom-reply",
           agent: contract.agent_name,
           path: "intercom",
           mode,
+          cid,
           detail: result.ok
             ? { ok: true }
             : { ok: false, errors: result.errors },
@@ -528,6 +570,17 @@ export default function agentProtocol(pi: ExtensionAPI): void {
       }
       if (event.toolName !== "subagent") return;
 
+      const cid = cidByToolCall.get(event.toolCallId);
+      // Bridge cid -> runId for async completion: the async-started result names
+      // the run id ("Async workflow [<uuid>]") and shares this toolCallId.
+      if (cid) {
+        const text = event.content
+          .map((c) => (c.type === "text" ? c.text : ""))
+          .join("\n");
+        const m = UUID_RE.exec(text);
+        if (m) rememberCid(cidByRunId, m[0], cid);
+      }
+
       // Preferred: per-child results carry each child's structuredOutput.
       const rawResults = (event.details as { results?: unknown } | undefined)
         ?.results;
@@ -542,7 +595,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
           const contract = registry.get(agent);
           if (!contract) continue;
           handled = true;
-          auditChildResult(agent, contract, r, "tool_result");
+          auditChildResult(agent, contract, r, "tool_result", cid);
         }
         if (handled) return;
       }
@@ -556,6 +609,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         agent,
         path: "subagent",
         mode,
+        cid,
         detail: {
           isError: event.isError,
           revalidation: "unavailable",
@@ -577,7 +631,13 @@ export default function agentProtocol(pi: ExtensionAPI): void {
   // child's structured output when the run actually finishes.
   pi.events.on("subagent:async-complete", (data: unknown) => {
     try {
-      const rawResults = (data as { results?: unknown } | undefined)?.results;
+      const payload = data as
+        | { results?: unknown; runId?: unknown }
+        | undefined;
+      const runId =
+        typeof payload?.runId === "string" ? payload.runId : undefined;
+      const cid = runId ? cidByRunId.get(runId) : undefined;
+      const rawResults = payload?.results;
       const results = Array.isArray(rawResults)
         ? (rawResults as Record<string, unknown>[])
         : undefined;
@@ -587,7 +647,7 @@ export default function agentProtocol(pi: ExtensionAPI): void {
         if (!agent) continue;
         const contract = registry.get(agent);
         if (!contract) continue;
-        auditChildResult(agent, contract, r, "async-complete");
+        auditChildResult(agent, contract, r, "async-complete", cid);
       }
     } catch (err) {
       console.error(

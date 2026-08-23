@@ -748,3 +748,98 @@ test("intercom ask reply: invalid JSON is annotated as non-conforming", async ()
     rmSync(project, { recursive: true, force: true });
   }
 });
+
+// --- 32-34. correlation-id (cid) ------------------------------------------
+
+async function auditEvents(tools: Map<string, any>): Promise<any[]> {
+  const text = await callAudit(tools, 50);
+  if (text === "(no audit events)") return [];
+  return text.split("\n").map((l) => JSON.parse(l));
+}
+
+test("cid: gate -> run -> completed share one correlation id (sync)", async () => {
+  const { handlers, tools } = setupInstance();
+  const project = makeFixtureProject();
+  try {
+    await loadContractInto(handlers, project);
+    await callDispatch(tools, AGENT_NAME, { files: ["a.ts"], rubric: "r" });
+    await fireToolCall(handlers, { agent: AGENT_NAME, task: "go" });
+    await fireToolResultDetails(handlers, [
+      { agent: AGENT_NAME, exitCode: 0, structuredOutput: { findings: [] } },
+    ]);
+    const events = await auditEvents(tools);
+    const gate = events.find((e) => e.detail?.stage === "gate");
+    const run = events.find((e) => e.detail?.stage === "run");
+    const done = events.find((e) => e.kind === "completed");
+    assert.ok(gate?.cid, "gate event has a cid");
+    assert.equal(run?.cid, gate.cid);
+    assert.equal(done?.cid, gate.cid);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("cid: async flow bridges gate -> async-complete via runId", async () => {
+  const { handlers, tools, eventHandlers } = setupInstance();
+  const project = makeFixtureProject();
+  try {
+    await loadContractInto(handlers, project);
+    await callDispatch(tools, AGENT_NAME, { files: ["a.ts"], rubric: "r" });
+    await fireToolCall(handlers, { agent: AGENT_NAME, task: "go" });
+
+    const runId = "12345678-1234-1234-1234-1234567890ab";
+    // async-started tool_result: content names the run id + shares toolCallId "x".
+    const [tr] = handlers.get("tool_result") ?? [];
+    await tr({
+      type: "tool_result",
+      toolCallId: "x",
+      toolName: "subagent",
+      input: {},
+      content: [{ type: "text", text: `Async workflow [${runId}] detached` }],
+      isError: false,
+    });
+    // async completion carries the same runId.
+    const [ac] = eventHandlers.get("subagent:async-complete") ?? [];
+    assert.ok(ac, "expected async-complete handler");
+    await ac({
+      runId,
+      results: [
+        { agent: AGENT_NAME, exitCode: 0, structuredOutput: { findings: [] } },
+      ],
+    });
+
+    const events = await auditEvents(tools);
+    const gate = events.find((e) => e.detail?.stage === "gate");
+    const done = events.find(
+      (e) => e.kind === "completed" && e.detail?.via === "async-complete",
+    );
+    assert.ok(gate?.cid);
+    assert.equal(done?.cid, gate.cid);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("cid: intercom ask -> reply share one correlation id", async () => {
+  const { handlers, tools } = setupInstance();
+  const project = makeFixtureProject();
+  try {
+    await loadContractInto(handlers, project);
+    await fireIntercomCall(handlers, {
+      action: "ask",
+      to: AGENT_NAME,
+      message: "hi",
+      attachments: paramsAttachment({ files: [], rubric: "r" }),
+    });
+    await fireIntercomResult(handlers, { action: "ask", to: AGENT_NAME }, [
+      { type: "text", text: '{"findings":[]}' },
+    ]);
+    const events = await auditEvents(tools);
+    const disp = events.find((e) => e.kind === "intercom-dispatched");
+    const reply = events.find((e) => e.kind === "intercom-reply");
+    assert.ok(disp?.cid);
+    assert.equal(reply?.cid, disp.cid);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
